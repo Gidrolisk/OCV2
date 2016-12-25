@@ -40,13 +40,15 @@ feature_params = dict( maxCorners = 500,
 
 class App:
     def __init__(self, video_src):
-        self.track_len = 10
-        self.detect_interval = 3
+        self.track_len = 5
+        self.detect_interval = 1
         self.tracks = []
-        self.cam = cv2.VideoCapture('b.mp4')
-        self.frame_idx = 0
+        self.cam = cv2.VideoCapture('1.mp4')
+        self.frame_idx = 128
 
     def run(self):
+        mats = []
+        ckos = []
         while True:
             #time.sleep(0.1)
             ret, frame = self.cam.read()
@@ -59,75 +61,103 @@ class App:
                 p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
                 p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
                 d = abs(p0-p0r).reshape(-1, 2).max(-1)
-                #print("all  %s %s" % (np.histogram(d,10)))
-                #print("D: %s" % d)
-                good = d < 1
-                #print("G: %s" % good)
-                #good = d > 0.9
-                #print("good %s %s " % (np.histogram(good,10)))
+                good = d < 10
                 new_tracks = []
                 for tr, (x, y), good_flag in zip(self.tracks, p1.reshape(-1, 2), good):
                     if not good_flag:
                         continue
-                        pass
+                        #pass
                     tr.append((x, y))
                     if len(tr) > self.track_len:
-                        #del tr[0]
-                        pass
+                        del tr[0]
+                        #pass
                     new_tracks.append(tr)
-                    cv2.circle(vis, (x, y), 2, (0, 255, 0), -1)
-                #print(new_tracks)
+                    #cv2.circle(vis, (x, y), 2, (0, 255, 0), -1)
                 
-                print(len(new_tracks))
-                tr_it = 0
+                tracks_copy = []
                 for track in new_tracks:
-                    #print(track)
-                    if len(track) == 10:
-                        tr_ln = 0
-                        tr_iter = 1
-                        for tracky1 in track:
-                            if tr_iter != len(track):
-                                #print(tracky1)
-                                #print(tracky1[0])
-                                #print(tracky1[1])
-                                tracky2 = track[tr_iter]
-                                dx = tracky2[0] - tracky1[0]
-                                dy = tracky2[1] - tracky1[1]
-                                tr_ln += math.sqrt(dx*dx + dy*dy)
-                                #print(math.sqrt(dx*dx + dy*dy))
-                                #print(tr_ln)
-                                #tr_iter += 1
-                        if tr_ln < 0.1:
-                            del new_tracks[tr_it]
-                            tr_it -= 1
-                    else:
-                        del new_tracks[tr_it]
-                    tr_it += 1
-                print(len(new_tracks))
+                    lengt = len(track)-1
+                    summ = (np.array(track[0])-np.array(track[lengt]))/len(track)
+                    summ[0] = math.fabs(summ[0])
+                    summ[1] = math.fabs(summ[1])
+                    if (summ[0] > 0.5 or summ[1] > 0.5):
+                        tracks_copy.append(track)
+                
+                last_points = []
+                if len(tracks_copy) > 1:
+                    for track in tracks_copy:
+                        lengt = len(track)-1
+                        last_points.append(track[lengt])
+                    #print(last_points)
+                    mx = 0
+                    my = 0
+                    for l_point in last_points:
+                        mx += l_point[0]
+                        my += l_point[1]
+                    mx = mx / len(last_points)
+                    my = my / len(last_points)
+                    mat = [round(mx,2), round(my,2)]
+                    cv2.circle(vis, (np.int32(mat[0]), np.int32(mat[1])), 5, 0, -1)
+                    #print(mat)
+                    cko = round(np.mean(mat),2)
+                    #print(cko)
+                    camera_w = 320
+                    camera_a = 60
+                    cat_w = 0.3
+                    cat_a = cko * camera_a / camera_w
+                    cat_a_r = cat_a * math.pi / 180
+                    #my = cat_w / math.tan(cat_a_r)
+                    my = cat_w / math.atan(cat_a_r)
+                    mat = [round(mx,2), round(my,2)]
+                    #print(mat)
+                    mats.append(mat)
+                    ckos.append(cko)
                 
                 self.tracks = new_tracks
-                cv2.polylines(vis, [np.int32(tr) for tr in self.tracks], False, (0, 255, 0))
-                draw_str(vis, (20, 20), 'track count: %d' % len(self.tracks))
+                #cv2.polylines(vis, [np.int32(tr) for tr in self.tracks], False, (0, 255, 255))
+                cv2.polylines(vis, [np.int32(tr) for tr in tracks_copy], False, (0, 255, 0))
+                #draw_str(vis, (20, 20), 'track count: %d' % len(self.tracks))
+                draw_str(vis, (20, 20), 'track count: %d' % len(tracks_copy))
 
             if self.frame_idx % self.detect_interval == 0:
                 mask = np.zeros_like(frame_gray)
                 mask[:] = 255
                 for x, y in [np.int32(tr[-1]) for tr in self.tracks]:
-                    cv2.circle(mask, (x, y), 5, 0, -1)
+                    #cv2.circle(mask, (x, y), 5, 0, -1)
+                    pass
                 p = cv2.goodFeaturesToTrack(frame_gray, mask = mask, **feature_params)
                 if p is not None:
                     for x, y in np.float32(p).reshape(-1, 2):
                         self.tracks.append([(x, y)])
 
-
             self.frame_idx += 1
             self.prev_gray = frame_gray
             cv2.imshow('lk_track', vis)
-            #cv2.imshow('lk_track', frame_gray)
 
             ch = 0xFF & cv2.waitKey(1)
             if ch == 27:
                 break
+        #print(mats)
+        #print(ckos)
+        iterat = 1
+        mats_good = []
+        cur = mats[0]
+        mats_good.append(cur)
+        for mat in mats:
+            if iterat != len(mats):
+                check = math.fabs(cur[1] - mats[iterat][1])
+                if check < 0.4:
+                    mats_good.append(mats[iterat])
+                    cur = mats[iterat]
+            iterat += 1
+        
+        f = open('plot.txt', 'w')
+        for mat in mats_good:
+            f.write(str(mat[0]))
+            f.write(' ')
+            f.write(str(mat[1]))
+            f.write('\n')
+        f.close()
 
 def main():
     import sys
